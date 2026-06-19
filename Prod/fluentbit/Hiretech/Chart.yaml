@@ -1,0 +1,14 @@
+apiVersion: v2
+name: loki
+description: A Helm chart for Fluent Bit as the log collector
+type: application
+version: 1.0.1
+appVersion: 3.4.2
+
+dependencies:
+  - alias: fluentbit
+    name: fluent-bit
+    repository: https://fluent.github.io/helm-charts
+    version: 0.48.10
+    tags:
+      - logging
