@@ -107,14 +107,11 @@ observability/
 ## Prerequisites
 
 ```bash
-# Update kubeconfig for target cluster
-aws eks update-kubeconfig --name <cluster-name> --region ap-south-1 --profile <profile>
 
 # Create observability namespace
 kubectl create namespace opstree-observability
 
-# Verify context
-kubectl config current-context
+
 ```
 
 ## 1. VMAgent
