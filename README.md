@@ -48,8 +48,8 @@ observability/
 │       │   ├── Chart.yaml  Chart.lock  values.yaml
 │       │   └── charts/victoria-metrics-k8s-stack-0.70.0.tgz
 │       └── Hiretech/
-│           ├── Chart.yaml  values.yaml
-│           └── charts/
+│           ├── Chart.yaml  Chart.lock  values.yaml
+│           └── charts/victoria-metrics-k8s-stack-0.70.0.tgz
 └── Prod/
     ├── fluentbit/
     │   ├── ALCSNG/
@@ -98,32 +98,55 @@ observability/
 
 ## Cluster Reference
 
-| Cluster | Environment | vmagent | Fluent Bit | OTel |
-|---|---|---|---|---|
-| HCMNG | Non-prod + Prod | `Non-prod/vmagent/HCMNG` | `Non-prod/fluentbit/HCMNG` | `Non-prod/otel/HCMNG` |
-| ALCSNG | Non-prod + Prod | `Non-prod/vmagent/ALSCNG` | `Non-prod/fluentbit/ALCSNG` | `Non-prod/otel/ALCSNG` |
-| Hiretech | Non-prod + Prod | `Non-prod/vmagent/Hiretech` | `Non-prod/fluentbit/Hiretech` | `Non-prod/otel/Hiretech` |
+| Cluster | Environment | Namespace | vmagent Release | Fluent Bit Release | OTel Operator Release | OTel Collector Release |
+|---|---|---|---|---|---|---|
+| HCMNG | Non-prod + Prod | `opstree-observability` | `vm` | `fluent-bit` | `otel-operator` | `otel-collector` |
+| ALCSNG | Non-prod + Prod | `opstree-observability` | `vm` | `fluent-bit` | `otel-operator` | `otel-collector` |
+| Hiretech | Non-prod + Prod | `opstree-observability` | `vm` | `fluent-bit` | `otel-operator` | `otel-collector` |
 
+## Prerequisites
+
+```bash
+# Update kubeconfig for target cluster
+aws eks update-kubeconfig --name <cluster-name> --region ap-south-1 --profile <profile>
+
+# Create observability namespace
+kubectl create namespace opstree-observability
+
+# Verify context
+kubectl config current-context
+```
 
 ## 1. VMAgent
 
 Scrapes metrics from all namespaces and remote-writes to central VictoriaMetrics via internal ALB.
 
-
-### Installation
+### Step 1 — Update dependencies
 
 ```bash
 cd <Non-prod|Prod>/vmagent/<CLUSTER_NAME>
 
+helm dependency update .
+
+# Verify charts are downloaded
+ls charts/
+```
+
+### Step 2 —  Installation
+
+```bash
 # First install with vmagent disabled (installs operator only)
-helm install <release_name> . \
-  -n observability \
+helm install vm . \
+  -n opstree-observability \
   --set vm.vmagent.enabled=false
 
+# Wait for operator to be ready
+kubectl get pods -n opstree-observability -w
+# Wait until vm-operator shows 1/1 Running
+
 # Then enable vmagent
-helm upgrade <release_name> . \
-  -n observability \
-  --set vm.vmagent.enabled=true \
+helm upgrade vm . \
+  -n opstree-observability \
   -f values.yaml
 ```
 
@@ -132,16 +155,16 @@ helm upgrade <release_name> . \
 ```bash
 cd <Non-prod|Prod>/vmagent/<CLUSTER_NAME>
 
-helm upgrade <release_name> . \
-  -n observability \
+helm upgrade vm . \
+  -n opstree-observability \
   -f values.yaml
 ```
 
 ### Verify
 
 ```bash
-# Check pod is running
-kubectl get pods -n observability | grep vmagent
+# Check pod is running (should show 2/2)
+kubectl get pods -n opstree-observability | grep vmagent
 
 ```
 
@@ -149,15 +172,22 @@ kubectl get pods -n observability | grep vmagent
 
 Runs as a DaemonSet on every node. Collects container logs from `/var/log/containers/` and forwards to central Loki.
 
-
-
-###  Installation
+### Step 1 — Update dependencies
 
 ```bash
 cd <Non-prod|Prod>/fluentbit/<CLUSTER_NAME>
 
-helm install <release_name> . \
-  -n observability \
+helm dependency update .
+
+# Verify charts are downloaded
+ls charts/
+```
+
+### Step 2 —  Installation
+
+```bash
+helm install fluent-bit . \
+  -n opstree-observability \
   -f values.yaml
 ```
 
@@ -166,8 +196,8 @@ helm install <release_name> . \
 ```bash
 cd <Non-prod|Prod>/fluentbit/<CLUSTER_NAME>
 
-helm upgrade <release_name> . \
-  -n observability \
+helm upgrade fluent-bit . \
+  -n opstree-observability \
   -f values.yaml
 ```
 
@@ -175,10 +205,10 @@ helm upgrade <release_name> . \
 
 ```bash
 # Check DaemonSet — DESIRED should equal total node count
-kubectl get daemonset -n observability | grep fluent-bit
+kubectl get daemonset -n opstree-observability | grep fluent-bit
 
 # Check all pods are Running
-kubectl get pods -n observability -l app.kubernetes.io/name=fluent-bit -o wide
+kubectl get pods -n opstree-observability -l app.kubernetes.io/name=fluent-bit -o wide
 
 ```
 
@@ -199,8 +229,15 @@ kubectl get pods -A | grep otel-operator
 ```bash
 cd <Non-prod|Prod>/otel/<CLUSTER_NAME>/otel-operator
 
-helm install <release_name> . \
-  -n observability \
+# Update dependencies first
+helm dependency update .
+
+# Verify charts downloaded
+ls charts/
+
+# Install
+helm install otel-operator . \
+  -n opstree-observability \
   -f values.yaml
 ```
 
@@ -209,8 +246,8 @@ helm install <release_name> . \
 ```bash
 cd <Non-prod|Prod>/otel/<CLUSTER_NAME>/otel-operator
 
-helm upgrade <release_name> . \
-  -n observability \
+helm upgrade otel-operator . \
+  -n opstree-observability \
   -f values.yaml
 ```
 
@@ -220,7 +257,7 @@ helm upgrade <release_name> . \
 kubectl apply -f <Non-prod|Prod>/otel/<CLUSTER_NAME>/otel-collector/templates/instrumentation.yaml
 
 # Verify
-kubectl get instrumentation -n observability
+kubectl get instrumentation -n opstree-observability
 ```
 
 ### Step 4 — Deploy otel-collector
@@ -228,8 +265,15 @@ kubectl get instrumentation -n observability
 ```bash
 cd <Non-prod|Prod>/otel/<CLUSTER_NAME>/otel-collector
 
-helm install <release_name> . \
-  -n observability \
+# Update dependencies first
+helm dependency update .
+
+# Verify charts downloaded
+ls charts/
+
+# Install
+helm install otel-collector . \
+  -n opstree-observability \
   -f values.yaml
 ```
 
@@ -238,8 +282,8 @@ helm install <release_name> . \
 ```bash
 cd <Non-prod|Prod>/otel/<CLUSTER_NAME>/otel-collector
 
-helm upgrade <release_name> . \
-  -n observability \
+helm upgrade otel-collector . \
+  -n opstree-observability \
   -f values.yaml
 ```
 
@@ -247,9 +291,9 @@ helm upgrade <release_name> . \
 
 | Language | Annotation |
 |---|---|
-| Node.js / NestJS | `instrumentation.opentelemetry.io/inject-nodejs: "observability/otel-instrumentation"` |
-| Java | `instrumentation.opentelemetry.io/inject-java: "observability/otel-instrumentation"` |
-| Python | `instrumentation.opentelemetry.io/inject-python: "observability/otel-instrumentation"` |
+| Node.js / NestJS | `instrumentation.opentelemetry.io/inject-nodejs: "opstree-observability/otel-instrumentation"` |
+| Java | `instrumentation.opentelemetry.io/inject-java: "opstree-observability/otel-instrumentation"` |
+| Python | `instrumentation.opentelemetry.io/inject-python: "opstree-observability/otel-instrumentation"` |
 | React (frontend) | No annotation — runs in browser |
 
 ```bash
@@ -258,6 +302,23 @@ kubectl rollout restart deployment/<app-name> -n <app-namespace>
 ```
 
 
+### Verify
+
+```bash
+# Check collector pod is running
+kubectl get pods -n opstree-observability | grep otel-collector
+
+# Check health
+kubectl port-forward -n opstree-observability \
+  svc/otel-collector-collector 13133:13133
+curl http://localhost:13133/
+
+# Check collector logs
+kubectl logs -n opstree-observability \
+  $(kubectl get pod -n opstree-observability -l app.kubernetes.io/name=otel-collector \
+  -o jsonpath='{.items[0].metadata.name}') \
+  --tail=20 | grep -iE "error|failed"
+```
 
 ## Central ALB Endpoint Paths
 
@@ -267,4 +328,14 @@ kubectl rollout restart deployment/<app-name> -n <app-namespace>
 | Logs | `/loki/api/v1/push` | Fluent Bit loki output |
 | Traces | `/v1/traces` | OTel Collector otlphttp exporter |
 
+## Helm Release Reference
 
+| Component | Release Name | Namespace | Chart Location |
+|---|---|---|---|
+| VMAgent | `vm` | `opstree-observability` | `<env>/vmagent/<CLUSTER>` |
+| Fluent Bit | `fluent-bit` | `opstree-observability` | `<env>/fluentbit/<CLUSTER>` |
+| OTel Operator | `otel-operator` | `opstree-observability` | `<env>/otel/<CLUSTER>/otel-operator` |
+| OTel Collector | `otel-collector` | `opstree-observability` | `<env>/otel/<CLUSTER>/otel-collector` |
+
+
+```
